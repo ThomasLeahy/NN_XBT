@@ -2,7 +2,7 @@
 """
 Created on Tue Apr 10 12:31:12 2018
 
-@author: thomaspatrickleahy
+@author: thomaspatrickleahy francescponsllopis
 """
 
 # packages
