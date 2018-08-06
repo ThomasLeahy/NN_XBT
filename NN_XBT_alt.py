@@ -2,7 +2,7 @@
 """
 Created on Wed Jul 26 10:28:26 2017
 
-@author: thomasleahy
+@author: thomasleahy francescponsllopis
 """
 import netCDF4 as nc4
 import numpy as np
