@@ -1,14 +1,13 @@
 # -*- coding: utf-8 -*-
 """
-Created on Tue Apr 10 12:31:12 2018
+Created on Wed Jul 26 10:28:26 2017
 
-@author: thomaspatrickleahy francescponsllopis
+@author: thomasleahy francescponsllopis
 """
-
-# packages
 import netCDF4 as nc4
 import numpy as np
 import datetime as dt
+import itertools
 import string
 import pickle
 import pandas as pd
@@ -16,10 +15,15 @@ from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 from sklearn.neural_network import MLPClassifier
 from sklearn.metrics import classification_report,confusion_matrix
+from sklearn.preprocessing import OneHotEncoder
+from sklearn.model_selection import GridSearchCV
+from io import BytesIO
+import csv
+import random
 
-
-
+random.seed(101)
 def extract_date(date):
+
     """
     This function returns a python date-time object
     from an int8 date in format, e.g. 19780101
@@ -36,6 +40,9 @@ def extract_date(date):
 
    """
     datestr = date.astype('str') # Convert to string to chop the date into year, month, day
+    dat = datestr.data
+    wrdat = dat.astype('str')
+    datestr = wrdat[()]
     yr = datestr[0:4]
     mn = datestr[4:6]
     dy = datestr[6:]
@@ -47,13 +54,13 @@ def extract_date(date):
     return dateobj
 
 
-indir='./Downloads/data_ocean/' ### input path
+indir=''
 outdir = ''
 
+#year = 1987
 
-imeta_dict = {}
-
-for year in list(range(1966, 2016)):
+for year in range(1966,2013):
+#for year in [2000, 2001, 2002, 2003, 2004, 2005, 2006, 2008, 2009, 2011, 2012, 2013, 2014, 2015, 2016]:
     stryr = str(year)
     ncfile  = 'iquod_xbt_'+stryr+'.nc'
 
@@ -83,76 +90,128 @@ for year in list(range(1966, 2016)):
 #
 # Create an empty dictionary to store the salient information..
     
+       # We could insert Matt's iMeta information here and write the whole lot out to file..
+    imeta_dict = {}
+
     for ii, ww in enumerate(WOD_unique):
         cntry     = b''.join(country[ii].data.tolist()).decode("utf-8")
         iMetaTim  = b''.join(instr_name[ii].data.tolist()).decode("utf-8")
         max_depth = max_depths[ii]
+        #depth_size = depth_sizes[ii]
         pdate   = extract_date(date[ii])
+    #        iMetaMatt = iquod_v01_imeta(max_depth, pdate, cntry) # Use v0.1 algorithm on profile info
         newlist   = [cntry, max_depth, pdate, iMetaTim]
         imeta_dict.update({ww:newlist})
             
-
+    print("data loaded")
+    #    # Write the summary information to file..
+    ##    
+    ##    pickle.dump( imeta_dict, open( outdir + 'iquod_xbt_'+stryr+'_iMetaData_summary.pickle', 'wb' ) )
+    
     
        ## Loop through all the types and append to an array and look for uniques and
         ## and count the occurances of each
+
+    
+    
     types = np.array([])
     for k in imeta_dict.keys():
         types = np.append(types, imeta_dict[k][3])
-    unique_types = np.unique(types)
+    
+
+    str123 = "UNKNOWN"
+    places = np.array([])
+    for i in range(1,len(types)):
+        check = types[i].find(str123)
+        if check != -1:
+            places = np.append(places, int(i))
+    places.astype(int)
+    types = np.delete(types, places)
     
     max_depths = np.array([])
     for k in imeta_dict.keys():
             max_depths = np.append(max_depths, imeta_dict[k][1])
+    max_depths = np.delete(max_depths, places)
+            
             
     dates_array = np.array([])
     for k in imeta_dict.keys():
             dates_array = np.append(dates_array, imeta_dict[k][2])
+    dates_array = np.delete(dates_array, places)
+
     
     country_array = np.array([])
     for k in imeta_dict.keys():
             country_array = np.append(country_array, imeta_dict[k][0])
+    country_array = np.delete(country_array, places)
+
+    depth_sizes = np.delete(depth_sizes, places)
     
-    ### arrays of unique probe types, and features are created
+    print("arrays created")
     
-    
-    probe_dict = {}      
-    unique_types_list = list(unique_types)
-    type_code = list(np.arange(0,len(unique_types)))
-    
-    for i in range(len(unique_types_list)):
-        probe_dict[type_code[i]] = unique_types_list[i]
-    
-    df= pd.DataFrame({'types':list(types)})
-    df['idx']=pd.Categorical(df['types'].astype(str)).codes
-    types_input=np.array(df['idx'])
-    
-       
-    df1=pd.DataFrame({'country':list(country_array)})
-    df1['idx'] = pd.Categorical(df1['country'].astype(str)).codes
-    country_input = np.array(df1['idx'])
-    
-    ## data frame to enable us to look up the probe types
-    ## also creates inputs    
-    
-    
-    # remove missing data
     if sum(np.isnan(max_depths)) > 0:
         things_to_erase = np.argwhere(np.isnan(max_depths))
         
         max_depths = np.delete(max_depths, things_to_erase)
         dates_array = np.delete(dates_array, things_to_erase)
         country_array = np.delete(country_array, things_to_erase)
-        types_input = np.delete(types_input, things_to_erase)
+        types = np.delete(types, things_to_erase)
     
+    print("nans removed")
+    
+    unique_types = np.unique(types)
+
+    probe_dict = {}      
+    unique_types_list = list(unique_types)
+    type_code = list(np.arange(0,len(unique_types)))
+    T4=-1
+    T5=-1
+    T7=-1
+    for i in range(len(unique_types_list)):
+        probe_dict[type_code[i]] = unique_types_list[i]
+        if unique_types_list[i]=='XBT: T4 (SIPPICAN)':
+            T4=type_code[i]
+        if unique_types_list[i]=='XBT: T5 (SIPPICAN)':
+            T5=type_code[i]
+        if unique_types_list[i]=='XBT: T7 (SIPPICAN)':
+            T7=type_code[i]
+
+    
+    df= pd.DataFrame({'types':list(types)})
+    df['idx']=pd.Categorical(df['types'].astype(str)).codes
+    types_input=np.array(df['idx'])
+    
+    #unique_country = np.unique(country_array)    
+      
+    
+    df1=pd.DataFrame({'country':list(country_array)})
+    df1['idx'] = pd.Categorical(df1['country'].astype(str)).codes
+    country_input = np.array(df1['idx'])
+    
+#    nam = 'types_dict30per'+stryr+'.txt'
+#    file = open(nam,"w")
+#    file2 = open(nam2,"w")
+#    file.write(str(df.groupby('types').agg({"idx": ['count']})))
+#    file.close() 
+#    
     date0=dt.date(2010,1,1)
     dates = np.array([])
     for i in range(len(dates_array)):
         dates=np.append(dates,(dates_array[i]-date0).days)
     
-    # create the feature matrix
+    
     X_data = []
     for x in range(0,len(max_depths)):
-        X_data.append([max_depths[x], dates[x], country_input[x]])
+        todo = ([max_depths[x], dates[x], country_input[x]])
+        
+        flat=[]
+        flat.append(todo[0])
+        flat.append(todo[1])
+        for i in range(0, len(todo[2])-1):
+            flat.append(todo[2][i])
+        X_data.append(flat)
+            
+
         
         
     
@@ -163,9 +222,8 @@ for year in list(range(1966, 2016)):
     
     y = types_input
     
-    X_train, X_test, y_train, y_test = train_test_split(X_data, y)
+    X_train, X_test, y_train, y_test = train_test_split(X_data, y, random_state = 1, test_size=0.25)
     
-    #scaling
     scaler = StandardScaler()
     
     # Fit only to the training data
@@ -178,14 +236,21 @@ for year in list(range(1966, 2016)):
     
     mlp = MLPClassifier(hidden_layer_sizes=(10,10,)) # num hidden layers and nodes 
     mlp.fit(X_train,y_train)
-    
-    predictions = mlp.predict(X_test)
 
+    predictions = mlp.predict(X_test)
+    
+    
+    positions = np.array([T4, T5, T7])
+    
     ### Output data   # uncomment if required
-#    nam = 'report'+stryr+'.txt'
-#    nam2 = 'cmatrix'+stryr+'.csv'
-#    file = open(nam,"w")
-#    file.write(classification_report(y_test,predictions))
+    nam = 'report_new2_'+stryr+'.txt'
+    nam2 = 'cmatrix_new2_'+stryr+'.csv'
+    nam3 = 'tolselect_new2_'+stryr+'.csv'
+    nam4 = 'positions_new2_'+stryr+'.csv'
+    file = open(nam,"w")
+    file.write(classification_report(y_test,predictions))
+    np.savetxt(nam2, confusion_matrix(y_test,predictions) , delimiter=",")
+    np.savetxt(nam3, clf.cv_results_["rank_test_score"] , delimiter=",")
+    np.savetxt(nam4, positions , delimiter=",")
+    file.close()
 #    
-#    np.savetxt(nam2, confusion_matrix(y_test,predictions) , delimiter=",")
-#    file.close()
